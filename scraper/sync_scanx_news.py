@@ -33,9 +33,27 @@ import requests
 
 API_URL = "https://news-live.dhan.co/v3/news/getLiveNews"
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
+STATUS_FILE = Path(__file__).resolve().parent.parent / "status.json"
 IST = timezone(timedelta(hours=5, minutes=30))
 PAGE_LIMIT = 50
 MAX_PAGES = 200  # safety cap so a bug can't loop forever
+
+
+class AuthExpiredError(Exception):
+    pass
+
+
+def write_status(status: str, message: str, new_items: int = 0) -> None:
+    """Always-written heartbeat file so the viewer webpage can show a
+    banner when the token needs refreshing, instead of you having to
+    check the GitHub Actions tab."""
+    payload = {
+        "status": status,  # "ok" | "auth_expired" | "error"
+        "message": message,
+        "new_items": new_items,
+        "last_attempt_utc": datetime.now(timezone.utc).isoformat(),
+    }
+    STATUS_FILE.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
 
 def get_env_or_die(name: str) -> str:
@@ -134,19 +152,15 @@ def fetch_page(auth_token: str, entity_id: str, first_ts: int, last_ts: int, pag
         "entity_id": entity_id,
     }
     resp = requests.post(API_URL, headers=headers, json=payload, timeout=30)
-    if resp.status_code == 401 or resp.status_code == 403:
-        print(
-            f"ERROR: Auth rejected (HTTP {resp.status_code}). Your token has "
-            "likely expired - grab a fresh one from DevTools and update the "
-            "SCANX_AUTH_TOKEN secret, then re-run.",
-            file=sys.stderr,
+    if resp.status_code in (401, 403):
+        raise AuthExpiredError(
+            f"Auth rejected (HTTP {resp.status_code}) - token has likely expired."
         )
-        sys.exit(2)
     resp.raise_for_status()
     return resp.json()
 
 
-def main() -> int:
+def run_sync() -> int:
     auth_token = get_env_or_die("SCANX_AUTH_TOKEN")
     entity_id = get_env_or_die("SCANX_ENTITY_ID")
 
@@ -204,6 +218,7 @@ def main() -> int:
 
     if not all_new_records:
         print("No new items to save.")
+        write_status("ok", "Synced - no new items.", new_items=0)
         return 0
 
     # Group by (IST) calendar day and append to the right file.
@@ -220,7 +235,25 @@ def main() -> int:
         print(f"Wrote {len(records)} new item(s) to {f.name}")
 
     print(f"Done. {len(all_new_records)} new item(s) total across {len(by_file)} day file(s).")
+    write_status("ok", f"Synced {len(all_new_records)} new item(s).", new_items=len(all_new_records))
     return 0
+
+
+def main() -> int:
+    try:
+        return run_sync()
+    except AuthExpiredError as e:
+        print(f"ERROR: {e}", file=sys.stderr)
+        write_status(
+            "auth_expired",
+            "SCANX_AUTH_TOKEN has expired - grab a fresh one from DevTools "
+            "and update the GitHub secret.",
+        )
+        return 2
+    except Exception as e:  # noqa: BLE001 - want to record *any* failure
+        print(f"ERROR: unexpected failure: {e}", file=sys.stderr)
+        write_status("error", f"Unexpected error: {e}")
+        return 1
 
 
 if __name__ == "__main__":
