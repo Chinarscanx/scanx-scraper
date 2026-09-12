@@ -1,7 +1,9 @@
 name: Sync ScanX News (on demand)
 
 on:
-  workflow_dispatch: {}   # run manually from the Actions tab whenever you want
+  schedule:
+    - cron: "*/30 * * * *"   # runs automatically every 30 minutes
+  workflow_dispatch: {}   # also runnable manually from the Actions tab
 
 permissions:
   contents: write
