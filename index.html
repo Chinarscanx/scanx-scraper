@@ -84,6 +84,22 @@
   .price { color: var(--muted); }
   .price.up { color: var(--positive); }
   .price.down { color: var(--negative); }
+  #banner {
+    display: none;
+    max-width: 760px;
+    margin: 12px auto 0;
+    padding: 10px 14px;
+    border-radius: 8px;
+    font-size: 13px;
+    line-height: 1.4;
+  }
+  #banner.warn {
+    display: block;
+    background: rgba(242, 85, 90, 0.12);
+    border: 1px solid rgba(242, 85, 90, 0.4);
+    color: #ffb3b5;
+  }
+  #banner a { color: inherit; text-decoration: underline; }
   a.headline-link { color: inherit; text-decoration: none; }
   a.headline-link:hover { text-decoration: underline; }
   #status { text-align: center; color: var(--muted); padding: 24px; font-size: 13px; }
@@ -115,6 +131,7 @@
       <option value="negative">Negative</option>
     </select>
   </div>
+  <div id="banner"></div>
 </header>
 
 <div id="feed"></div>
@@ -138,6 +155,42 @@ const searchEl = document.getElementById("search");
 const sentimentEl = document.getElementById("sentimentFilter");
 const loadMoreWrap = document.getElementById("loadMoreWrap");
 const loadMoreBtn = document.getElementById("loadMore");
+const bannerEl = document.getElementById("banner");
+
+async function checkSyncStatus() {
+  try {
+    const url = `https://raw.githubusercontent.com/${OWNER}/${REPO}/${BRANCH}/status.json?t=${Date.now()}`;
+    const res = await fetch(url);
+    if (!res.ok) return; // no status.json yet (e.g. before first sync) - fine, just skip
+
+    const st = await res.json();
+    const lastAttempt = new Date(st.last_attempt_utc);
+    const minsAgo = Math.round((Date.now() - lastAttempt.getTime()) / 60000);
+    const whenText = minsAgo < 60 ? `${minsAgo} min ago` : `${Math.round(minsAgo / 60)} hr ago`;
+
+    if (st.status === "auth_expired") {
+      bannerEl.className = "warn";
+      bannerEl.innerHTML =
+        `\u26A0\uFE0F Auth token expired (last attempt ${whenText}). ` +
+        `Grab a fresh token from DevTools and update the <code>SCANX_AUTH_TOKEN</code> secret in GitHub, ` +
+        `then it'll pick back up automatically on the next 30-min run.`;
+    } else if (st.status === "error") {
+      bannerEl.className = "warn";
+      bannerEl.innerHTML = `\u26A0\uFE0F Last sync failed (${whenText}): ${escapeHtml(st.message || "unknown error")}`;
+    } else if (minsAgo > 90) {
+      // status says "ok" but it's been a long while since any attempt at all -
+      // e.g. the schedule itself may have stopped running.
+      bannerEl.className = "warn";
+      bannerEl.innerHTML = `\u26A0\uFE0F No sync attempt in ${whenText} \u2014 check that the GitHub Action is still enabled and scheduled.`;
+    } else {
+      bannerEl.className = "";
+      bannerEl.textContent = "";
+    }
+  } catch (err) {
+    // Don't let a status-check failure break the actual news viewer.
+    console.warn("Could not check sync status:", err);
+  }
+}
 
 let allDayFiles = [];   // sorted newest-first list of {name, download_url}
 let loadedDays = 0;
@@ -247,6 +300,9 @@ async function loadNextBatch() {
 
 async function init() {
   try {
+    checkSyncStatus(); // don't block the news load on this
+    setInterval(checkSyncStatus, 5 * 60 * 1000); // re-check every 5 min while the tab is open
+
     statusEl.textContent = "Loading news archive\u2026";
     allDayFiles = await listDayFiles();
     if (allDayFiles.length === 0) {
