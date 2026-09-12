@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ScanX News Flash Archive</title>
+<style>
+  :root {
+    --bg: #0f1115;
+    --card-bg: #1a1d24;
+    --border: #2a2e37;
+    --text: #e6e8eb;
+    --muted: #9aa0aa;
+    --positive: #3ecf8e;
+    --negative: #f2555a;
+    --neutral: #8a8f99;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  header {
+    padding: 20px 24px 12px;
+    border-bottom: 1px solid var(--border);
+    position: sticky;
+    top: 0;
+    background: var(--bg);
+    z-index: 10;
+  }
+  h1 { margin: 0 0 4px; font-size: 20px; }
+  .sub { color: var(--muted); font-size: 13px; }
+  .controls {
+    display: flex;
+    gap: 8px;
+    margin-top: 12px;
+    flex-wrap: wrap;
+  }
+  .controls input, .controls select {
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 6px 10px;
+    border-radius: 6px;
+    font-size: 13px;
+  }
+  .controls input { flex: 1; min-width: 160px; }
+  #feed {
+    max-width: 760px;
+    margin: 0 auto;
+    padding: 16px;
+  }
+  .item {
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 16px;
+    margin-bottom: 10px;
+  }
+  .item-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 8px;
+    margin-bottom: 6px;
+  }
+  .symbol {
+    font-weight: 600;
+    font-size: 13px;
+    color: var(--muted);
+  }
+  .time { font-size: 12px; color: var(--muted); white-space: nowrap; }
+  .headline { font-size: 15px; font-weight: 600; margin: 2px 0 6px; }
+  .summary { font-size: 13.5px; color: #c6c9cf; line-height: 1.45; }
+  .meta { margin-top: 8px; display: flex; gap: 10px; align-items: center; font-size: 12.5px; }
+  .dot {
+    width: 7px; height: 7px; border-radius: 50%; display: inline-block;
+  }
+  .dot.positive { background: var(--positive); }
+  .dot.negative { background: var(--negative); }
+  .dot.neutral, .dot.unknown { background: var(--neutral); }
+  .price { color: var(--muted); }
+  .price.up { color: var(--positive); }
+  .price.down { color: var(--negative); }
+  a.headline-link { color: inherit; text-decoration: none; }
+  a.headline-link:hover { text-decoration: underline; }
+  #status { text-align: center; color: var(--muted); padding: 24px; font-size: 13px; }
+  #loadMoreWrap { text-align: center; padding: 16px; }
+  button#loadMore {
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 8px 16px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 13px;
+  }
+  button#loadMore:hover { border-color: var(--muted); }
+  button#loadMore:disabled { opacity: 0.5; cursor: default; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>ScanX News Flash Archive</h1>
+  <div class="sub" id="subtitle">Loading&hellip;</div>
+  <div class="controls">
+    <input id="search" type="text" placeholder="Search headline, symbol, summary&hellip;">
+    <select id="sentimentFilter">
+      <option value="">All sentiment</option>
+      <option value="positive">Positive</option>
+      <option value="neutral">Neutral</option>
+      <option value="negative">Negative</option>
+    </select>
+  </div>
+</header>
+
+<div id="feed"></div>
+<div id="status"></div>
+<div id="loadMoreWrap" style="display:none;">
+  <button id="loadMore">Load older days</button>
+</div>
+
+<script>
+// ---- Configure this for your repo ----
+const OWNER = "Chinarscanx";
+const REPO = "scanx-scraper";
+const BRANCH = "main";
+const DATA_PATH = "data";
+// ---------------------------------------
+
+const feedEl = document.getElementById("feed");
+const statusEl = document.getElementById("status");
+const subtitleEl = document.getElementById("subtitle");
+const searchEl = document.getElementById("search");
+const sentimentEl = document.getElementById("sentimentFilter");
+const loadMoreWrap = document.getElementById("loadMoreWrap");
+const loadMoreBtn = document.getElementById("loadMore");
+
+let allDayFiles = [];   // sorted newest-first list of {name, download_url}
+let loadedDays = 0;
+const DAYS_PER_PAGE = 3;
+let allItems = [];      // every item loaded so far, across days
+
+async function listDayFiles() {
+  const url = `https://api.github.com/repos/${OWNER}/${REPO}/contents/${DATA_PATH}?ref=${BRANCH}`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Could not list data files (${res.status})`);
+  const files = await res.json();
+  return files
+    .filter(f => f.name.endsWith(".jsonl"))
+    .sort((a, b) => b.name.localeCompare(a.name)); // newest date first
+}
+
+async function fetchDayItems(fileMeta) {
+  const res = await fetch(fileMeta.download_url);
+  if (!res.ok) return [];
+  const text = await res.text();
+  return text
+    .split("\n")
+    .map(l => l.trim())
+    .filter(Boolean)
+    .map(l => {
+      try { return JSON.parse(l); } catch { return null; }
+    })
+    .filter(Boolean);
+}
+
+function render() {
+  const q = searchEl.value.trim().toLowerCase();
+  const sentiment = sentimentEl.value;
+
+  const filtered = allItems.filter(it => {
+    if (sentiment && (it.sentiment || "unknown") !== sentiment) return false;
+    if (!q) return true;
+    const hay = `${it.headline || ""} ${it.symbol || ""} ${it.summary || ""}`.toLowerCase();
+    return hay.includes(q);
+  });
+
+  filtered.sort((a, b) => (b.scraped_at || "").localeCompare(a.scraped_at || ""));
+
+  feedEl.innerHTML = filtered.map(renderItem).join("");
+  subtitleEl.textContent = `${filtered.length} item${filtered.length === 1 ? "" : "s"} shown` +
+    (allDayFiles.length ? ` · ${loadedDays} of ${allDayFiles.length} day file${allDayFiles.length===1?"":"s"} loaded` : "");
+}
+
+function renderItem(it) {
+  const sentiment = it.sentiment || "unknown";
+  let priceClass = "";
+  const changeNum = parseFloat((it.change || "0").toString().replace(/,/g, ""));
+  if (!isNaN(changeNum)) {
+    if (changeNum > 0) priceClass = "up";
+    else if (changeNum < 0) priceClass = "down";
+  }
+  const headlineHtml = it.link
+    ? `<a class="headline-link" href="${escapeAttr(it.link)}" target="_blank" rel="noopener">${escapeHtml(it.headline)}</a>`
+    : escapeHtml(it.headline || "");
+
+  const priceLine = (it.price != null)
+    ? `<span class="price ${priceClass}">${escapeHtml(it.price)} ${it.change != null ? escapeHtml(it.change) : ""} ${it.pct_change != null ? "(" + escapeHtml(it.pct_change) + "%)" : ""}</span>`
+    : "";
+
+  return `
+    <div class="item">
+      <div class="item-top">
+        <span class="symbol">${escapeHtml(it.symbol || "")}</span>
+        <span class="time">${escapeHtml(it.time_ago_at_scrape || "")}</span>
+      </div>
+      <div class="headline">${headlineHtml}</div>
+      ${it.summary ? `<div class="summary">${escapeHtml(it.summary)}</div>` : ""}
+      <div class="meta">
+        <span class="dot ${sentiment}"></span>
+        <span style="text-transform:capitalize;color:var(--muted);">${sentiment}</span>
+        ${priceLine}
+      </div>
+    </div>`;
+}
+
+function escapeHtml(str) {
+  return String(str)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+function escapeAttr(str) {
+  return escapeHtml(str).replace(/"/g, "&quot;");
+}
+
+async function loadNextBatch() {
+  loadMoreBtn.disabled = true;
+  loadMoreBtn.textContent = "Loading\u2026";
+
+  const batch = allDayFiles.slice(loadedDays, loadedDays + DAYS_PER_PAGE);
+  for (const fileMeta of batch) {
+    const items = await fetchDayItems(fileMeta);
+    allItems.push(...items);
+    loadedDays++;
+    render();
+  }
+
+  loadMoreBtn.disabled = false;
+  loadMoreBtn.textContent = "Load older days";
+  loadMoreWrap.style.display = loadedDays < allDayFiles.length ? "block" : "none";
+}
+
+async function init() {
+  try {
+    statusEl.textContent = "Loading news archive\u2026";
+    allDayFiles = await listDayFiles();
+    if (allDayFiles.length === 0) {
+      statusEl.textContent = "No data files found yet \u2014 check back after the scraper has run a few times.";
+      subtitleEl.textContent = "";
+      return;
+    }
+    statusEl.textContent = "";
+    await loadNextBatch();
+  } catch (err) {
+    statusEl.textContent = "Couldn't load the archive: " + err.message;
+  }
+}
+
+searchEl.addEventListener("input", render);
+sentimentEl.addEventListener("change", render);
+loadMoreBtn.addEventListener("click", loadNextBatch);
+
+init();
+</script>
+
+</body>
+</html>
