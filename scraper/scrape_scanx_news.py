@@ -185,8 +185,13 @@ def main() -> int:
         print("No items parsed - the site's markup may have changed.", file=sys.stderr)
         return 1
 
+    # Collapse duplicates found within THIS run (the site's markup can
+    # render the same news card more than once - e.g. across hidden
+    # tabs/breakpoints), keeping the first occurrence of each id.
+    deduped_items = list({it["id"]: it for it in items}.values())
+
     existing_ids = load_existing_ids(day_file)
-    new_items = [it for it in items if it["id"] not in existing_ids]
+    new_items = [it for it in deduped_items if it["id"] not in existing_ids]
 
     if new_items:
         with day_file.open("a", encoding="utf-8") as f:
@@ -195,8 +200,8 @@ def main() -> int:
                 f.write(json.dumps(it, ensure_ascii=False) + "\n")
 
     print(
-        f"Parsed {len(items)} items on page, {len(new_items)} new, "
-        f"written to {day_file.name}"
+        f"Parsed {len(items)} raw items on page ({len(deduped_items)} unique), "
+        f"{len(new_items)} new, written to {day_file.name}"
     )
     return 0
 
