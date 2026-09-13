@@ -52,12 +52,22 @@
     margin: 0 auto;
     padding: 16px;
   }
+  .day-heading {
+    text-align: center;
+    color: var(--muted);
+    font-size: 11.5px;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+    margin: 22px 0 10px;
+  }
+  .day-heading:first-child { margin-top: 4px; }
   .item {
     background: var(--card-bg);
     border: 1px solid var(--border);
     border-radius: 10px;
     padding: 14px 16px;
     margin-bottom: 10px;
+    scroll-margin-top: 130px;
   }
   .item-top {
     display: flex;
@@ -81,9 +91,6 @@
   .dot.positive { background: var(--positive); }
   .dot.negative { background: var(--negative); }
   .dot.neutral, .dot.unknown { background: var(--neutral); }
-  .price { color: var(--muted); }
-  .price.up { color: var(--positive); }
-  .price.down { color: var(--negative); }
   #banner {
     display: none;
     max-width: 760px;
@@ -103,18 +110,23 @@
   a.headline-link { color: inherit; text-decoration: none; }
   a.headline-link:hover { text-decoration: underline; }
   #status { text-align: center; color: var(--muted); padding: 24px; font-size: 13px; }
-  #loadMoreWrap { text-align: center; padding: 16px; }
-  button#loadMore {
+  #floatingDate {
+    position: fixed;
+    top: 128px;
+    left: 50%;
+    transform: translateX(-50%);
     background: var(--card-bg);
     border: 1px solid var(--border);
-    color: var(--text);
-    padding: 8px 16px;
-    border-radius: 8px;
-    cursor: pointer;
-    font-size: 13px;
+    color: var(--muted);
+    border-radius: 12px;
+    padding: 4px 12px;
+    font-size: 11px;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+    z-index: 9;
+    display: none;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.3);
   }
-  button#loadMore:hover { border-color: var(--muted); }
-  button#loadMore:disabled { opacity: 0.5; cursor: default; }
 </style>
 </head>
 <body>
@@ -130,15 +142,16 @@
       <option value="neutral">Neutral</option>
       <option value="negative">Negative</option>
     </select>
+    <select id="dateJump">
+      <option value="">Jump to date&hellip;</option>
+    </select>
   </div>
   <div id="banner"></div>
 </header>
 
 <div id="feed"></div>
 <div id="status"></div>
-<div id="loadMoreWrap" style="display:none;">
-  <button id="loadMore">Load older days</button>
-</div>
+<div id="floatingDate"></div>
 
 <script>
 // ---- Configure this for your repo ----
@@ -148,14 +161,18 @@ const BRANCH = "main";
 const DATA_PATH = "data";
 // ---------------------------------------
 
+const IST_OFFSET_MIN = 5 * 60 + 30; // IST = UTC+5:30
+
 const feedEl = document.getElementById("feed");
 const statusEl = document.getElementById("status");
 const subtitleEl = document.getElementById("subtitle");
 const searchEl = document.getElementById("search");
 const sentimentEl = document.getElementById("sentimentFilter");
-const loadMoreWrap = document.getElementById("loadMoreWrap");
-const loadMoreBtn = document.getElementById("loadMore");
 const bannerEl = document.getElementById("banner");
+const dateJumpEl = document.getElementById("dateJump");
+const floatingDateEl = document.getElementById("floatingDate");
+
+let allItems = [];   // every item, across all day files (loaded eagerly on init)
 
 async function checkSyncStatus() {
   try {
@@ -178,8 +195,6 @@ async function checkSyncStatus() {
       bannerEl.className = "warn";
       bannerEl.innerHTML = `\u26A0\uFE0F Last sync failed (${whenText}): ${escapeHtml(st.message || "unknown error")}`;
     } else if (minsAgo > 90) {
-      // status says "ok" but it's been a long while since any attempt at all -
-      // e.g. the schedule itself may have stopped running.
       bannerEl.className = "warn";
       bannerEl.innerHTML = `\u26A0\uFE0F No sync attempt in ${whenText} \u2014 check that the GitHub Action is still enabled and scheduled.`;
     } else {
@@ -187,15 +202,14 @@ async function checkSyncStatus() {
       bannerEl.textContent = "";
     }
   } catch (err) {
-    // Don't let a status-check failure break the actual news viewer.
     console.warn("Could not check sync status:", err);
   }
 }
 
-let allDayFiles = [];   // sorted newest-first list of {name, download_url}
-let loadedDays = 0;
-const DAYS_PER_PAGE = 3;
-let allItems = [];      // every item loaded so far, across days
+function dateStrFromFilename(name) {
+  const m = name.match(/news-(\d{4}-\d{2}-\d{2})\.jsonl$/);
+  return m ? m[1] : null;
+}
 
 async function listDayFiles() {
   const url = `https://api.github.com/repos/${OWNER}/${REPO}/contents/${DATA_PATH}?ref=${BRANCH}`;
@@ -204,7 +218,9 @@ async function listDayFiles() {
   const files = await res.json();
   return files
     .filter(f => f.name.endsWith(".jsonl"))
-    .sort((a, b) => b.name.localeCompare(a.name)); // newest date first
+    .map(f => ({ name: f.name, download_url: f.download_url, dateStr: dateStrFromFilename(f.name) }))
+    .filter(f => f.dateStr)
+    .sort((a, b) => b.dateStr.localeCompare(a.dateStr)); // newest first
 }
 
 async function fetchDayItems(fileMeta) {
@@ -215,10 +231,38 @@ async function fetchDayItems(fileMeta) {
     .split("\n")
     .map(l => l.trim())
     .filter(Boolean)
-    .map(l => {
-      try { return JSON.parse(l); } catch { return null; }
-    })
+    .map(l => { try { return JSON.parse(l); } catch { return null; } })
     .filter(Boolean);
+}
+
+// Prefer the article's real publish date (new schema); fall back to when it
+// was scraped, for any leftover records from before the API switch.
+function itemTimestampMs(it) {
+  return it.publish_date_ms || (it.scraped_at ? new Date(it.scraped_at).getTime() : 0);
+}
+
+// IST calendar date (YYYY-MM-DD) for a record.
+function istDateStr(it) {
+  const ms = itemTimestampMs(it);
+  if (!ms) return null;
+  const d = new Date(ms + IST_OFFSET_MIN * 60000);
+  return d.toISOString().slice(0, 10);
+}
+
+function formatDayHeading(dateStr) {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  return dt.toLocaleDateString(undefined, { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" }).toUpperCase();
+}
+
+function formatTime(it) {
+  const ms = itemTimestampMs(it);
+  if (!ms) return "";
+  const d = new Date(ms + IST_OFFSET_MIN * 60000);
+  const h = d.getUTCHours(), m = d.getUTCMinutes();
+  const ampm = h >= 12 ? "PM" : "AM";
+  const h12 = ((h + 11) % 12) + 1;
+  return `${h12}:${String(m).padStart(2, "0")} ${ampm}`;
 }
 
 function render() {
@@ -232,86 +276,121 @@ function render() {
     return hay.includes(q);
   });
 
-  filtered.sort((a, b) => (b.scraped_at || "").localeCompare(a.scraped_at || ""));
+  filtered.sort((a, b) => itemTimestampMs(b) - itemTimestampMs(a));
 
-  feedEl.innerHTML = filtered.map(renderItem).join("");
-  subtitleEl.textContent = `${filtered.length} item${filtered.length === 1 ? "" : "s"} shown` +
-    (allDayFiles.length ? ` · ${loadedDays} of ${allDayFiles.length} day file${allDayFiles.length===1?"":"s"} loaded` : "");
+  let html = "";
+  let lastDate = null;
+  for (const it of filtered) {
+    const d = istDateStr(it);
+    if (d && d !== lastDate) {
+      html += `<div class="day-heading" data-date="${d}">${formatDayHeading(d)}</div>`;
+      lastDate = d;
+    }
+    html += renderItem(it, d);
+  }
+  feedEl.innerHTML = html;
+
+  subtitleEl.textContent = `${filtered.length} item${filtered.length === 1 ? "" : "s"} shown`;
 }
 
-function renderItem(it) {
+function renderItem(it, dateStr) {
   const sentiment = it.sentiment || "unknown";
-  let priceClass = "";
-  const changeNum = parseFloat((it.change || "0").toString().replace(/,/g, ""));
-  if (!isNaN(changeNum)) {
-    if (changeNum > 0) priceClass = "up";
-    else if (changeNum < 0) priceClass = "down";
-  }
-  const headlineHtml = it.link
-    ? `<a class="headline-link" href="${escapeAttr(it.link)}" target="_blank" rel="noopener">${escapeHtml(it.headline)}</a>`
+  const headlineHtml = it.seo_symbol
+    ? `<a class="headline-link" href="https://scanx.trade/stocks/${escapeAttr(it.seo_symbol)}" target="_blank" rel="noopener">${escapeHtml(it.headline)}</a>`
     : escapeHtml(it.headline || "");
 
-  const priceLine = (it.price != null)
-    ? `<span class="price ${priceClass}">${escapeHtml(it.price)} ${it.change != null ? escapeHtml(it.change) : ""} ${it.pct_change != null ? "(" + escapeHtml(it.pct_change) + "%)" : ""}</span>`
-    : "";
-
   return `
-    <div class="item">
+    <div class="item" data-date="${dateStr || ""}">
       <div class="item-top">
         <span class="symbol">${escapeHtml(it.symbol || "")}</span>
-        <span class="time">${escapeHtml(it.time_ago_at_scrape || "")}</span>
+        <span class="time">${formatTime(it)}</span>
       </div>
       <div class="headline">${headlineHtml}</div>
       ${it.summary ? `<div class="summary">${escapeHtml(it.summary)}</div>` : ""}
       <div class="meta">
         <span class="dot ${sentiment}"></span>
         <span style="text-transform:capitalize;color:var(--muted);">${sentiment}</span>
-        ${priceLine}
       </div>
     </div>`;
 }
 
 function escapeHtml(str) {
-  return String(str)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
+  return String(str).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 function escapeAttr(str) {
   return escapeHtml(str).replace(/"/g, "&quot;");
 }
 
-async function loadNextBatch() {
-  loadMoreBtn.disabled = true;
-  loadMoreBtn.textContent = "Loading\u2026";
-
-  const batch = allDayFiles.slice(loadedDays, loadedDays + DAYS_PER_PAGE);
-  for (const fileMeta of batch) {
-    const items = await fetchDayItems(fileMeta);
-    allItems.push(...items);
-    loadedDays++;
-    render();
+// ---------- date dropdown (with per-date counts) ----------
+function populateDateDropdown() {
+  const counts = {};
+  for (const it of allItems) {
+    const d = istDateStr(it);
+    if (d) counts[d] = (counts[d] || 0) + 1;
   }
+  const dates = Object.keys(counts).sort().reverse();
 
-  loadMoreBtn.disabled = false;
-  loadMoreBtn.textContent = "Load older days";
-  loadMoreWrap.style.display = loadedDays < allDayFiles.length ? "block" : "none";
+  dateJumpEl.innerHTML = `<option value="">Jump to date&hellip;</option>` +
+    dates.map(d => `<option value="${d}">${formatDayHeading(d)} (${counts[d]})</option>`).join("");
 }
+
+dateJumpEl.addEventListener("change", () => {
+  const d = dateJumpEl.value;
+  if (!d) return;
+  // Clear filters so the target date is guaranteed visible, then scroll to it.
+  searchEl.value = "";
+  sentimentEl.value = "";
+  render();
+  requestAnimationFrame(() => {
+    const heading = feedEl.querySelector(`.day-heading[data-date="${d}"]`);
+    if (heading) heading.scrollIntoView({ block: "start", behavior: "smooth" });
+  });
+});
+
+// ---------- floating date while scrolling ----------
+function updateFloatingDate() {
+  const headings = feedEl.querySelectorAll(".day-heading");
+  let current = null;
+  for (const h of headings) {
+    if (h.getBoundingClientRect().top <= 140) current = h;
+    else break;
+  }
+  if (current) {
+    floatingDateEl.textContent = current.textContent;
+    floatingDateEl.style.display = "block";
+  } else {
+    floatingDateEl.style.display = "none";
+  }
+}
+function debounce(fn, ms) {
+  let t;
+  return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), ms); };
+}
+window.addEventListener("scroll", debounce(updateFloatingDate, 80));
 
 async function init() {
   try {
-    checkSyncStatus(); // don't block the news load on this
-    setInterval(checkSyncStatus, 5 * 60 * 1000); // re-check every 5 min while the tab is open
+    checkSyncStatus();
+    setInterval(checkSyncStatus, 5 * 60 * 1000);
 
     statusEl.textContent = "Loading news archive\u2026";
-    allDayFiles = await listDayFiles();
-    if (allDayFiles.length === 0) {
-      statusEl.textContent = "No data files found yet \u2014 check back after the scraper has run a few times.";
+    const dayFiles = await listDayFiles();
+    if (dayFiles.length === 0) {
+      statusEl.textContent = "No data files found yet \u2014 check back after the sync has run.";
       subtitleEl.textContent = "";
       return;
     }
+
+    // Load every day file up front - needed for accurate date-dropdown
+    // counts, and current volume is small enough that this stays fast.
+    for (const fileMeta of dayFiles) {
+      const items = await fetchDayItems(fileMeta);
+      allItems.push(...items);
+      render();
+    }
+
+    populateDateDropdown();
     statusEl.textContent = "";
-    await loadNextBatch();
   } catch (err) {
     statusEl.textContent = "Couldn't load the archive: " + err.message;
   }
@@ -319,7 +398,6 @@ async function init() {
 
 searchEl.addEventListener("input", render);
 sentimentEl.addEventListener("change", render);
-loadMoreBtn.addEventListener("click", loadNextBatch);
 
 init();
 </script>
