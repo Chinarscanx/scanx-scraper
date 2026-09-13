@@ -34,9 +34,54 @@ import requests
 API_URL = "https://news-live.dhan.co/v3/news/getLiveNews"
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 STATUS_FILE = Path(__file__).resolve().parent.parent / "status.json"
+COUNTS_FILE = Path(__file__).resolve().parent.parent / "counts.json"
+SEARCH_INDEX_FILE = Path(__file__).resolve().parent.parent / "search-index.json"
 IST = timezone(timedelta(hours=5, minutes=30))
 PAGE_LIMIT = 50
 MAX_PAGES = 200  # safety cap so a bug can't loop forever
+
+
+def write_counts_manifest() -> None:
+    """Small {date: item_count} file so the viewer page can populate its
+    date dropdown and know what history exists WITHOUT downloading every
+    day file - keeps the page fast as the archive grows."""
+    counts: dict[str, int] = {}
+    if not DATA_DIR.exists():
+        return
+    for f in sorted(DATA_DIR.glob("news-*.jsonl")):
+        date_str = f.stem.replace("news-", "")
+        n = 0
+        with f.open("r", encoding="utf-8") as fh:
+            for line in fh:
+                if line.strip():
+                    n += 1
+        if n:
+            counts[date_str] = n
+    COUNTS_FILE.write_text(json.dumps(counts, indent=2), encoding="utf-8")
+
+
+def write_search_index() -> None:
+    """Single consolidated JSON array of every saved item, across all
+    days. The viewer loads this once, in the background, so full-archive
+    search works instantly without the day-by-day browsing view having
+    to eagerly load everything up front (same split reader.html uses:
+    lazy chunked browsing + a separate full-text search index)."""
+    all_items = []
+    if not DATA_DIR.exists():
+        SEARCH_INDEX_FILE.write_text("[]", encoding="utf-8")
+        return
+    for f in sorted(DATA_DIR.glob("news-*.jsonl")):
+        with f.open("r", encoding="utf-8") as fh:
+            for line in fh:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    all_items.append(json.loads(line))
+                except json.JSONDecodeError:
+                    continue
+    all_items.sort(key=lambda r: r.get("publish_date_ms") or 0, reverse=True)
+    SEARCH_INDEX_FILE.write_text(json.dumps(all_items, ensure_ascii=False), encoding="utf-8")
 
 
 class AuthExpiredError(Exception):
@@ -218,6 +263,8 @@ def run_sync() -> int:
 
     if not all_new_records:
         print("No new items to save.")
+        write_counts_manifest()
+        write_search_index()
         write_status("ok", "Synced - no new items.", new_items=0)
         return 0
 
@@ -235,6 +282,8 @@ def run_sync() -> int:
         print(f"Wrote {len(records)} new item(s) to {f.name}")
 
     print(f"Done. {len(all_new_records)} new item(s) total across {len(by_file)} day file(s).")
+    write_counts_manifest()
+    write_search_index()
     write_status("ok", f"Synced {len(all_new_records)} new item(s).", new_items=len(all_new_records))
     return 0
 
