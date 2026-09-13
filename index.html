@@ -32,6 +32,550 @@
   }
   h1 { margin: 0 0 4px; font-size: 20px; }
   .sub { color: var(--muted); font-size: 13px; }
+  .index-status { color: var(--muted); font-size: 11px; margin-top: 2px; }
+  .controls {
+    display: flex;
+    gap: 8px;
+    margin-top: 12px;
+    flex-wrap: wrap;
+  }
+  .controls input, .controls select {
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 6px 10px;
+    border-radius: 6px;
+    font-size: 13px;
+  }
+  .controls input { flex: 1; min-width: 160px; }
+  #feed {
+    max-width: 760px;
+    margin: 0 auto;
+    padding: 16px;
+  }
+  .day-heading {
+    text-align: center;
+    color: var(--muted);
+    font-size: 11.5px;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+    margin: 22px 0 10px;
+  }
+  .day-heading:first-child { margin-top: 4px; }
+  .item {
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 16px;
+    margin-bottom: 10px;
+    scroll-margin-top: 130px;
+    position: relative;
+  }
+  .rank-badge {
+    position: absolute;
+    bottom: 8px;
+    right: 12px;
+    color: var(--muted);
+    font-size: 11px;
+    font-weight: 600;
+    opacity: 0.65;
+  }
+  .item-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 8px;
+    margin-bottom: 6px;
+  }
+  .symbol {
+    font-weight: 600;
+    font-size: 13px;
+    color: var(--muted);
+  }
+  .time { font-size: 12px; color: var(--muted); white-space: nowrap; }
+  .headline { font-size: 15px; font-weight: 600; margin: 2px 0 6px; }
+  .summary { font-size: 13.5px; color: #c6c9cf; line-height: 1.45; }
+  .meta { margin-top: 8px; display: flex; gap: 10px; align-items: center; font-size: 12.5px; }
+  .dot {
+    width: 7px; height: 7px; border-radius: 50%; display: inline-block;
+  }
+  .dot.positive { background: var(--positive); }
+  .dot.negative { background: var(--negative); }
+  .dot.neutral, .dot.unknown { background: var(--neutral); }
+  #banner {
+    display: none;
+    max-width: 760px;
+    margin: 12px auto 0;
+    padding: 10px 14px;
+    border-radius: 8px;
+    font-size: 13px;
+    line-height: 1.4;
+  }
+  #banner.warn {
+    display: block;
+    background: rgba(242, 85, 90, 0.12);
+    border: 1px solid rgba(242, 85, 90, 0.4);
+    color: #ffb3b5;
+  }
+  #banner a { color: inherit; text-decoration: underline; }
+  a.headline-link { color: inherit; text-decoration: none; }
+  a.headline-link:hover { text-decoration: underline; }
+  #status { text-align: center; color: var(--muted); padding: 24px; font-size: 13px; }
+  #scrollStatus { text-align: center; color: var(--muted); padding: 8px; font-size: 12px; }
+  #searchNote {
+    max-width: 760px;
+    margin: 10px auto 0;
+    padding: 8px 12px;
+    border-radius: 8px;
+    font-size: 12.5px;
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    color: var(--muted);
+    display: none;
+  }
+  #searchNote button {
+    background: var(--border);
+    border: 1px solid var(--muted);
+    color: var(--text);
+    padding: 3px 9px;
+    border-radius: 5px;
+    font-size: 12px;
+    cursor: pointer;
+    margin-left: 6px;
+  }
+  #floatingDate {
+    position: fixed;
+    top: 128px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    color: var(--muted);
+    border-radius: 12px;
+    padding: 4px 12px;
+    font-size: 11px;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+    z-index: 9;
+    display: none;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+  }
+  #sentinel { height: 1px; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>ScanX News Flash Archive</h1>
+  <div class="sub" id="subtitle">Loading&hellip;</div>
+  <div class="index-status" id="indexStatus"></div>
+  <div class="controls">
+    <input id="search" type="text" placeholder="Search headline, symbol, summary&hellip;">
+    <select id="sentimentFilter">
+      <option value="">All sentiment</option>
+      <option value="positive">Positive</option>
+      <option value="neutral">Neutral</option>
+      <option value="negative">Negative</option>
+    </select>
+    <select id="dateJump">
+      <option value="">Jump to date&hellip;</option>
+    </select>
+  </div>
+  <div id="banner"></div>
+</header>
+
+<div id="searchNote"></div>
+<div id="feed"></div>
+<div id="status"></div>
+<div id="scrollStatus"></div>
+<div id="sentinel"></div>
+<div id="floatingDate"></div>
+
+<script>
+// ---- Configure this for your repo ----
+const OWNER = "Chinarscanx";
+const REPO = "scanx-scraper";
+const BRANCH = "main";
+// ---------------------------------------
+
+const IST_OFFSET_MIN = 5 * 60 + 30; // IST = UTC+5:30
+const rawBase = `https://raw.githubusercontent.com/${OWNER}/${REPO}/${BRANCH}`;
+
+const feedEl = document.getElementById("feed");
+const statusEl = document.getElementById("status");
+const scrollStatusEl = document.getElementById("scrollStatus");
+const subtitleEl = document.getElementById("subtitle");
+const indexStatusEl = document.getElementById("indexStatus");
+const searchEl = document.getElementById("search");
+const sentimentEl = document.getElementById("sentimentFilter");
+const bannerEl = document.getElementById("banner");
+const dateJumpEl = document.getElementById("dateJump");
+const floatingDateEl = document.getElementById("floatingDate");
+const searchNoteEl = document.getElementById("searchNote");
+const sentinelEl = document.getElementById("sentinel");
+
+let sortedDates = [];        // all known dates, newest first (from counts.json)
+let counts = {};             // date -> total count (from counts.json)
+let itemsByDate = {};        // date -> array of items (only for browse-loaded dates)
+let loadedDateSet = new Set();
+let dayRankById = {};        // item id -> its countdown rank within its date
+
+let fullIndex = null;        // all items ever synced, once background-loaded
+let fullIndexReady = false;
+
+const INITIAL_DATES = 2;
+const RESULT_CAP = 500;      // safety cap on rendered search matches
+
+// ---------- status banner (unchanged behavior) ----------
+async function checkSyncStatus() {
+  try {
+    const url = `${rawBase}/status.json?t=${Date.now()}`;
+    const res = await fetch(url);
+    if (!res.ok) return;
+    const st = await res.json();
+    const lastAttempt = new Date(st.last_attempt_utc);
+    const minsAgo = Math.round((Date.now() - lastAttempt.getTime()) / 60000);
+    const whenText = minsAgo < 60 ? `${minsAgo} min ago` : `${Math.round(minsAgo / 60)} hr ago`;
+
+    if (st.status === "auth_expired") {
+      bannerEl.className = "warn";
+      bannerEl.innerHTML =
+        `\u26A0\uFE0F Auth token expired (last attempt ${whenText}). ` +
+        `Grab a fresh token from DevTools and update the <code>SCANX_AUTH_TOKEN</code> secret in GitHub.`;
+    } else if (st.status === "error") {
+      bannerEl.className = "warn";
+      bannerEl.innerHTML = `\u26A0\uFE0F Last sync failed (${whenText}): ${escapeHtml(st.message || "unknown error")}`;
+    } else if (minsAgo > 90) {
+      bannerEl.className = "warn";
+      bannerEl.innerHTML = `\u26A0\uFE0F No sync attempt in ${whenText} \u2014 check that the GitHub Action is still enabled and scheduled.`;
+    } else {
+      bannerEl.className = "";
+      bannerEl.textContent = "";
+    }
+  } catch (err) {
+    console.warn("Could not check sync status:", err);
+  }
+}
+
+// ---------- helpers ----------
+function itemTimestampMs(it) {
+  return it.publish_date_ms || (it.scraped_at ? new Date(it.scraped_at).getTime() : 0);
+}
+function istDateStr(it) {
+  const ms = itemTimestampMs(it);
+  if (!ms) return null;
+  const d = new Date(ms + IST_OFFSET_MIN * 60000);
+  return d.toISOString().slice(0, 10);
+}
+function formatDayHeading(dateStr) {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  return dt.toLocaleDateString(undefined, { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" }).toUpperCase();
+}
+function formatTime(it) {
+  const ms = itemTimestampMs(it);
+  if (!ms) return "";
+  const d = new Date(ms + IST_OFFSET_MIN * 60000);
+  const h = d.getUTCHours(), m = d.getUTCMinutes();
+  const ampm = h >= 12 ? "PM" : "AM";
+  const h12 = ((h + 11) % 12) + 1;
+  return `${h12}:${String(m).padStart(2, "0")} ${ampm}`;
+}
+function escapeHtml(str) {
+  return String(str).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+function escapeAttr(str) {
+  return escapeHtml(str).replace(/"/g, "&quot;");
+}
+
+// Compute countdown ranks (newest of a date = that date's count, oldest = 1)
+// for one date's full item list, and merge into the global map.
+function computeRanksForDate(dateStr, items) {
+  const sorted = items.slice().sort((a, b) => itemTimestampMs(b) - itemTimestampMs(a));
+  const total = sorted.length;
+  sorted.forEach((it, idx) => { dayRankById[it.id] = total - idx; });
+}
+
+// ---------- counts.json (drives the date dropdown) ----------
+async function loadCounts() {
+  const res = await fetch(`${rawBase}/counts.json?t=${Date.now()}`);
+  if (!res.ok) throw new Error(`Could not load counts.json (${res.status})`);
+  counts = await res.json();
+  sortedDates = Object.keys(counts).sort().reverse();
+
+  dateJumpEl.innerHTML = `<option value="">Jump to date&hellip;</option>` +
+    sortedDates.map(d => `<option value="${d}">${formatDayHeading(d)} (${counts[d]})</option>`).join("");
+}
+
+// ---------- per-day fetching (browse mode) ----------
+async function fetchDateItems(dateStr) {
+  const res = await fetch(`${rawBase}/data/news-${dateStr}.jsonl?t=${Date.now()}`);
+  if (!res.ok) return [];
+  const text = await res.text();
+  return text.split("\n").map(l => l.trim()).filter(Boolean)
+    .map(l => { try { return JSON.parse(l); } catch { return null; } })
+    .filter(Boolean);
+}
+
+async function ensureDateLoaded(dateStr) {
+  if (loadedDateSet.has(dateStr)) return;
+  const items = await fetchDateItems(dateStr);
+  itemsByDate[dateStr] = items;
+  loadedDateSet.add(dateStr);
+  computeRanksForDate(dateStr, items);
+}
+
+// ---------- background full search index ----------
+async function loadSearchIndexInBackground() {
+  indexStatusEl.textContent = "Loading full search index in background\u2026";
+  try {
+    const res = await fetch(`${rawBase}/search-index.json?t=${Date.now()}`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    fullIndex = await res.json();
+    fullIndexReady = true;
+    // Fill in ranks for any dates not yet browse-loaded.
+    const byDate = {};
+    for (const it of fullIndex) {
+      const d = istDateStr(it);
+      if (d) (byDate[d] = byDate[d] || []).push(it);
+    }
+    for (const d in byDate) computeRanksForDate(d, byDate[d]);
+    indexStatusEl.textContent = `Search ready \u2014 covers all ${fullIndex.length} items`;
+    setTimeout(() => { indexStatusEl.textContent = ""; }, 4000);
+    if (isFiltering()) render(); // a filter may already be active - upgrade it to full-archive results
+  } catch (err) {
+    indexStatusEl.textContent = "Full search index failed to load - search will only cover loaded days.";
+    console.warn("Search index load failed:", err);
+  }
+}
+
+// ---------- filter state ----------
+function isFiltering() {
+  return searchEl.value.trim() !== "" || sentimentEl.value !== "";
+}
+function matchesFilter(it, q, sentiment) {
+  if (sentiment && (it.sentiment || "unknown") !== sentiment) return false;
+  if (!q) return true;
+  const hay = `${it.headline || ""} ${it.symbol || ""} ${it.summary || ""}`.toLowerCase();
+  return hay.includes(q);
+}
+
+// ---------- rendering ----------
+function renderItem(it, dateStr) {
+  const sentiment = it.sentiment || "unknown";
+  const headlineHtml = it.seo_symbol
+    ? `<a class="headline-link" href="https://scanx.trade/stocks/${escapeAttr(it.seo_symbol)}" target="_blank" rel="noopener">${escapeHtml(it.headline)}</a>`
+    : escapeHtml(it.headline || "");
+  const rank = dayRankById[it.id];
+
+  return `
+    <div class="item" data-date="${dateStr || ""}">
+      <div class="item-top">
+        <span class="symbol">${escapeHtml(it.symbol || "")}</span>
+        <span class="time">${formatTime(it)}</span>
+      </div>
+      <div class="headline">${headlineHtml}</div>
+      ${it.summary ? `<div class="summary">${escapeHtml(it.summary)}</div>` : ""}
+      <div class="meta">
+        <span class="dot ${sentiment}"></span>
+        <span style="text-transform:capitalize;color:var(--muted);">${sentiment}</span>
+      </div>
+      ${rank != null ? `<span class="rank-badge">${rank}</span>` : ""}
+    </div>`;
+}
+
+function renderGroupedList(items, cappedNoticeExtra) {
+  let html = "";
+  let lastDate = null;
+  for (const it of items) {
+    const d = istDateStr(it);
+    if (d && d !== lastDate) {
+      html += `<div class="day-heading" data-date="${d}">${formatDayHeading(d)}</div>`;
+      lastDate = d;
+    }
+    html += renderItem(it, d);
+  }
+  feedEl.innerHTML = html;
+  subtitleEl.textContent = `${items.length} item${items.length === 1 ? "" : "s"} shown` + (cappedNoticeExtra || "");
+}
+
+function render() {
+  const q = searchEl.value.trim().toLowerCase();
+  const sentiment = sentimentEl.value;
+  const filtering = q !== "" || sentiment !== "";
+
+  if (filtering && fullIndexReady) {
+    // ---- full-archive search mode ----
+    sentinelEl.style.display = "none";
+    scrollStatusEl.textContent = "";
+    let matches = fullIndex.filter(it => matchesFilter(it, q, sentiment));
+    matches.sort((a, b) => itemTimestampMs(b) - itemTimestampMs(a));
+    let extra = "";
+    if (matches.length > RESULT_CAP) {
+      extra = ` (showing most recent ${RESULT_CAP} \u2014 refine your search for fewer)`;
+      matches = matches.slice(0, RESULT_CAP);
+    }
+    renderGroupedList(matches, extra + " \u00b7 searching full archive");
+    searchNoteEl.style.display = "none";
+    return;
+  }
+
+  if (filtering && !fullIndexReady) {
+    // ---- filters active, but full index still loading: loaded days only ----
+    sentinelEl.style.display = "none";
+    scrollStatusEl.textContent = "";
+    const loaded = Object.values(itemsByDate).flat();
+    const matches = loaded.filter(it => matchesFilter(it, q, sentiment))
+      .sort((a, b) => itemTimestampMs(b) - itemTimestampMs(a));
+    renderGroupedList(matches, "");
+    searchNoteEl.style.display = "block";
+    searchNoteEl.textContent = `Full search index still loading \u2014 showing matches from the ${loadedDateSet.size} day(s) loaded so far. This will update automatically once ready.`;
+    return;
+  }
+
+  // ---- normal lazy browse mode ----
+  searchNoteEl.style.display = "none";
+  sentinelEl.style.display = "block";
+  const browseDates = sortedDates.filter(d => loadedDateSet.has(d));
+  const items = browseDates.flatMap(d => itemsByDate[d])
+    .sort((a, b) => itemTimestampMs(b) - itemTimestampMs(a));
+  renderGroupedList(items, "");
+  scrollStatusEl.textContent = loadedDateSet.size < sortedDates.length
+    ? `${loadedDateSet.size} of ${sortedDates.length} days loaded \u2014 scroll for more`
+    : `All ${sortedDates.length} days loaded`;
+}
+
+// ---------- floating date while scrolling ----------
+function updateFloatingDate() {
+  const headings = feedEl.querySelectorAll(".day-heading");
+  let current = null;
+  for (const h of headings) {
+    if (h.getBoundingClientRect().top <= 140) current = h;
+    else break;
+  }
+  if (current) {
+    floatingDateEl.textContent = current.textContent;
+    floatingDateEl.style.display = "block";
+  } else {
+    floatingDateEl.style.display = "none";
+  }
+}
+function debounce(fn, ms) {
+  let t;
+  return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), ms); };
+}
+window.addEventListener("scroll", debounce(updateFloatingDate, 80));
+
+// ---------- infinite scroll (browse mode only) ----------
+let loadingMore = false;
+async function loadNextDateForScroll() {
+  if (loadingMore || isFiltering()) return;
+  const next = sortedDates.find(d => !loadedDateSet.has(d));
+  if (!next) return;
+  loadingMore = true;
+  scrollStatusEl.textContent = "Loading more\u2026";
+  try {
+    await ensureDateLoaded(next);
+    render();
+  } finally {
+    loadingMore = false;
+  }
+}
+const observer = new IntersectionObserver((entries) => {
+  for (const e of entries) if (e.isIntersecting) loadNextDateForScroll();
+}, { rootMargin: "800px 0px 800px 0px" });
+observer.observe(sentinelEl);
+
+// ---------- jump to date ----------
+dateJumpEl.addEventListener("change", async () => {
+  const d = dateJumpEl.value;
+  if (!d) return;
+  searchEl.value = "";
+  sentimentEl.value = "";
+  statusEl.textContent = loadedDateSet.has(d) ? "" : `Loading ${d}\u2026`;
+  await ensureDateLoaded(d);
+  statusEl.textContent = "";
+  render();
+  requestAnimationFrame(() => {
+    const heading = feedEl.querySelector(`.day-heading[data-date="${d}"]`);
+    if (heading) heading.scrollIntoView({ block: "start", behavior: "smooth" });
+  });
+});
+
+// ---------- "load all & search" affordance ----------
+// (Only ever needed if the background index genuinely failed to load -
+// gives the person a manual retry rather than being stuck.)
+searchNoteEl.addEventListener("click", (e) => {
+  if (e.target.tagName === "BUTTON") loadSearchIndexInBackground();
+});
+
+// ---------- init ----------
+async function init() {
+  try {
+    checkSyncStatus();
+    setInterval(checkSyncStatus, 5 * 60 * 1000);
+
+    statusEl.textContent = "Loading news archive\u2026";
+    await loadCounts();
+    if (sortedDates.length === 0) {
+      statusEl.textContent = "No data files found yet \u2014 check back after the sync has run.";
+      subtitleEl.textContent = "";
+      return;
+    }
+
+    loadSearchIndexInBackground(); // kicked off, not awaited - runs in background
+
+    const initial = sortedDates.slice(0, INITIAL_DATES);
+    await Promise.all(initial.map(d => ensureDateLoaded(d)));
+
+    statusEl.textContent = "";
+    render();
+  } catch (err) {
+    statusEl.textContent = "Couldn't load the archive: " + err.message;
+  }
+}
+
+searchEl.addEventListener("input", render);
+sentimentEl.addEventListener("change", render);
+
+init();
+</script>
+
+</body>
+</html><!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ScanX News Flash Archive</title>
+<style>
+  :root {
+    --bg: #0f1115;
+    --card-bg: #1a1d24;
+    --border: #2a2e37;
+    --text: #e6e8eb;
+    --muted: #9aa0aa;
+    --positive: #3ecf8e;
+    --negative: #f2555a;
+    --neutral: #8a8f99;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  header {
+    padding: 20px 24px 12px;
+    border-bottom: 1px solid var(--border);
+    position: sticky;
+    top: 0;
+    background: var(--bg);
+    z-index: 10;
+  }
+  h1 { margin: 0 0 4px; font-size: 20px; }
+  .sub { color: var(--muted); font-size: 13px; }
   .controls {
     display: flex;
     gap: 8px;
