@@ -68,6 +68,16 @@
     padding: 14px 16px;
     margin-bottom: 10px;
     scroll-margin-top: 130px;
+    position: relative;
+  }
+  .rank-badge {
+    position: absolute;
+    bottom: 8px;
+    right: 12px;
+    color: var(--muted);
+    font-size: 11px;
+    font-weight: 600;
+    opacity: 0.65;
   }
   .item-top {
     display: flex;
@@ -265,6 +275,25 @@ function formatTime(it) {
   return `${h12}:${String(m).padStart(2, "0")} ${ampm}`;
 }
 
+// Countdown badge per date: newest item of a date = that date's total
+// count, oldest = 1. Computed once from the FULL (unfiltered) list per
+// date, so the numbers stay stable even while searching/filtering.
+let dayRankById = {};
+function computeDayRanks() {
+  const byDate = {};
+  for (const it of allItems) {
+    const d = istDateStr(it);
+    if (!d) continue;
+    (byDate[d] = byDate[d] || []).push(it);
+  }
+  dayRankById = {};
+  for (const d in byDate) {
+    const group = byDate[d].slice().sort((a, b) => itemTimestampMs(b) - itemTimestampMs(a));
+    const total = group.length;
+    group.forEach((it, idx) => { dayRankById[it.id] = total - idx; });
+  }
+}
+
 function render() {
   const q = searchEl.value.trim().toLowerCase();
   const sentiment = sentimentEl.value;
@@ -298,6 +327,7 @@ function renderItem(it, dateStr) {
   const headlineHtml = it.seo_symbol
     ? `<a class="headline-link" href="https://scanx.trade/stocks/${escapeAttr(it.seo_symbol)}" target="_blank" rel="noopener">${escapeHtml(it.headline)}</a>`
     : escapeHtml(it.headline || "");
+  const rank = dayRankById[it.id];
 
   return `
     <div class="item" data-date="${dateStr || ""}">
@@ -311,6 +341,7 @@ function renderItem(it, dateStr) {
         <span class="dot ${sentiment}"></span>
         <span style="text-transform:capitalize;color:var(--muted);">${sentiment}</span>
       </div>
+      ${rank != null ? `<span class="rank-badge">${rank}</span>` : ""}
     </div>`;
 }
 
@@ -389,7 +420,9 @@ async function init() {
       render();
     }
 
+    computeDayRanks();
     populateDateDropdown();
+    render();
     statusEl.textContent = "";
   } catch (err) {
     statusEl.textContent = "Couldn't load the archive: " + err.message;
