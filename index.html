@@ -466,7 +466,7 @@ function renderGroupedList(items, cappedNoticeExtra) {
 function render() {
   const q = searchEl.value.trim().toLowerCase();
   const sentiment = sentimentEl.value;
-  const filtering = q !== "" || sentiment !== "";
+  const filtering = q !== "" || sentiment !== "" || watchlistOnly;
 
   if (filtering && fullIndexReady) {
     // ---- full-archive search mode ----
