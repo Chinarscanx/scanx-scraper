@@ -5,10 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>ScanX News Flash Archive</title>
 <script>
-  // Applied before the stylesheet paints, so there's no flash of the wrong theme.
+  // Applied before the stylesheet paints, so there's no flash of the wrong theme/layout.
   try {
     var savedTheme = localStorage.getItem("scanx_theme");
     if (savedTheme) document.documentElement.setAttribute("data-theme", savedTheme);
+    var savedLayout = localStorage.getItem("scanx_layout");
+    if (savedLayout) document.documentElement.setAttribute("data-layout", savedLayout);
   } catch (e) {}
 </script>
 <style>
@@ -95,6 +97,19 @@
     scroll-margin-top: 130px;
     position: relative;
   }
+  /* Lines layout: no card box, just a thin bottom divider between items -
+     same fonts/typography as the card layout, just less visual weight per
+     item so more fits in one view. */
+  html[data-layout="lines"] .item {
+    background: transparent;
+    border: none;
+    border-bottom: 1px solid var(--border);
+    border-radius: 0;
+    padding: 10px 2px 12px;
+    margin-bottom: 0;
+  }
+  html[data-layout="lines"] #feed { padding-top: 4px; }
+  html[data-layout="lines"] .day-heading { margin: 20px 0 4px; }
   .rank-badge {
     position: absolute;
     bottom: 8px;
@@ -139,6 +154,16 @@
     cursor: pointer;
   }
   #themeToggleBtn:hover { border-color: var(--muted); }
+  #layoutToggleBtn {
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 6px 10px;
+    border-radius: 6px;
+    font-size: 13px;
+    cursor: pointer;
+  }
+  #layoutToggleBtn:hover { border-color: var(--muted); }
   .external-links {
     display: flex;
     gap: 8px;
@@ -272,6 +297,7 @@
       <option value="">Jump to date&hellip;</option>
     </select>
     <button id="watchlistBtn" title="Show only starred items">&#9733; Watchlist</button>
+    <button id="layoutToggleBtn" title="Switch card/line layout"></button>
     <button id="themeToggleBtn" title="Switch light/dark theme">&#9789;</button>
   </div>
   <div id="banner"></div>
@@ -308,6 +334,23 @@ const searchNoteEl = document.getElementById("searchNote");
 const sentinelEl = document.getElementById("sentinel");
 const watchlistBtn = document.getElementById("watchlistBtn");
 const themeToggleBtn = document.getElementById("themeToggleBtn");
+const layoutToggleBtn = document.getElementById("layoutToggleBtn");
+
+// ---------- layout toggle (cards vs lines) ----------
+function currentLayout() {
+  return document.documentElement.getAttribute("data-layout") === "lines" ? "lines" : "cards";
+}
+function updateLayoutBtnLabel() {
+  layoutToggleBtn.textContent = currentLayout() === "lines" ? "\u25A4 Cards view" : "\u2630 Lines view";
+  layoutToggleBtn.title = currentLayout() === "lines" ? "Switch to card layout" : "Switch to line-separator layout";
+}
+layoutToggleBtn.addEventListener("click", () => {
+  const next = currentLayout() === "lines" ? "cards" : "lines";
+  document.documentElement.setAttribute("data-layout", next);
+  try { localStorage.setItem("scanx_layout", next); } catch (e) {}
+  updateLayoutBtnLabel();
+});
+updateLayoutBtnLabel();
 
 // ---------- theme toggle ----------
 function currentTheme() {
