@@ -23,6 +23,7 @@
     --positive: #3ecf8e;
     --negative: #f2555a;
     --neutral: #8a8f99;
+    --headline: #7dd3fc;
   }
   html[data-theme="light"] {
     --bg: #f7f7f8;
@@ -33,6 +34,7 @@
     --positive: #1f9d5c;
     --negative: #d0333f;
     --neutral: #6b7280;
+    --headline: #1a3fa3;
   }
   * { box-sizing: border-box; }
   body {
@@ -110,6 +112,11 @@
   }
   html[data-layout="lines"] #feed { padding-top: 4px; }
   html[data-layout="lines"] .day-heading { margin: 20px 0 4px; }
+  html[data-layout="lines"] .headline { color: var(--headline); }
+  html[data-layout="lines"] .summary,
+  html[data-layout="lines"] .meta {
+    margin-left: 36px;
+  }
 
   /* Lines mode gets noticeably more breathing room on laptop/desktop
      screens - this is the main fix for the cramped feeling, since the
