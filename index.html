@@ -110,6 +110,18 @@
   }
   html[data-layout="lines"] #feed { padding-top: 4px; }
   html[data-layout="lines"] .day-heading { margin: 20px 0 4px; }
+
+  /* Lines mode gets noticeably more breathing room on laptop/desktop
+     screens - this is the main fix for the cramped feeling, since the
+     page previously had no responsive width at all. Mobile is untouched. */
+  @media (min-width: 900px) {
+    html[data-layout="lines"] #feed,
+    html[data-layout="lines"] #banner,
+    html[data-layout="lines"] #searchNote {
+      max-width: 1180px;
+    }
+    html[data-layout="lines"] .item { padding: 12px 4px 14px; }
+  }
   .rank-badge {
     position: absolute;
     bottom: 8px;
