@@ -31,6 +31,13 @@
     z-index: 10;
   }
   h1 { margin: 0 0 4px; font-size: 20px; }
+  .title-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
   .sub { color: var(--muted); font-size: 13px; }
   .index-status { color: var(--muted); font-size: 11px; margin-top: 2px; }
   .controls {
@@ -104,6 +111,32 @@
     background: #3a2f0f;
     border-color: #f5c518;
     color: #f5c518;
+  }
+  .external-links {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .ext-btn {
+    display: inline-flex;
+    align-items: center;
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 6px 12px;
+    border-radius: 6px;
+    font-size: 13px;
+    text-decoration: none;
+    cursor: pointer;
+  }
+  .ext-btn:hover {
+    border-color: var(--muted);
+  }
+  .ext-btn::after {
+    content: "\2197";
+    margin-left: 6px;
+    color: var(--muted);
+    font-size: 11px;
   }
   .item-top {
     display: flex;
@@ -192,7 +225,13 @@
 
 <header>
   <h1>ScanX News Flash Archive</h1>
-  <div class="sub" id="subtitle">Loading&hellip;</div>
+  <div class="title-row">
+    <div class="sub" id="subtitle">Loading&hellip;</div>
+    <div class="external-links">
+      <a href="https://www.bseindia.com/markets/equity/eqreports/mktwatchr?filter=gainer*all$all$" target="_blank" rel="noopener" class="ext-btn">BSE Gainers</a>
+      <a href="https://www.bseindia.com/markets/equity/eqreports/highlow?Flag=H" target="_blank" rel="noopener" class="ext-btn">52W High/Low</a>
+    </div>
+  </div>
   <div class="index-status" id="indexStatus"></div>
   <div class="controls">
     <input id="search" type="text" placeholder="Search headline, symbol, summary&hellip;">
