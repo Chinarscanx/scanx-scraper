@@ -290,6 +290,75 @@
     box-shadow: 0 2px 8px rgba(0,0,0,0.3);
   }
   #sentinel { height: 1px; }
+
+  /* ---- Phone: hide the top bar, leaving a small arrow tab peeking to bring it back ---- */
+  html { overflow-anchor: none; }
+  .header-handle { display: none; }
+  @media (max-width: 760px) {
+    .header-handle {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: absolute;
+      left: 50%;
+      top: 100%;
+      transform: translateX(-50%);
+      width: 64px;
+      height: 26px;
+      padding: 0;
+      background: inherit;
+      color: var(--muted);
+      border: 1px solid var(--border);
+      border-top: none;
+      border-radius: 0 0 14px 14px;
+      font-size: 13px;
+      line-height: 1;
+      cursor: pointer;
+      z-index: 11;
+      -webkit-tap-highlight-color: transparent;
+    }
+    /* If there is a sync warning, the tab turns red even while the bar is hidden. */
+    #banner.warn ~ .header-handle { color: var(--negative); border-color: var(--negative); }
+    html.header-hidden header {
+      height: 0;
+      padding: 0;
+      border-bottom: none;
+      overflow: visible;
+    }
+    html.header-hidden header > *:not(.header-handle) { display: none; }
+  }
+
+  /* ---- Laptop/desktop: page up / page down squircles, bottom right ---- */
+  .page-nav { display: none; }
+  @media (min-width: 761px) {
+    .page-nav {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      position: fixed;
+      right: 22px;
+      bottom: 22px;
+      z-index: 9;
+    }
+    .page-nav button {
+      width: 48px;
+      height: 48px;
+      padding: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 30%;
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      color: var(--text);
+      font-size: 17px;
+      line-height: 1;
+      cursor: pointer;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+    }
+    .page-nav button:hover { border-color: var(--muted); }
+    .page-nav button:active { transform: scale(0.95); }
+  }
 /* ================= Claude Light & Claude Dark (from BSE monitor) ================= */
 html[data-theme="claude-light"] {
   --bg: #faf9f5;
@@ -366,6 +435,7 @@ html[data-theme="claude-dark"] .day-heading { color: #928f86; }
     </select>
   </div>
   <div id="banner"></div>
+  <button id="headerHandle" class="header-handle" type="button" aria-label="Hide toolbar">&#9650;</button>
 </header>
 
 <div id="searchNote"></div>
@@ -373,6 +443,10 @@ html[data-theme="claude-dark"] .day-heading { color: #928f86; }
 <div id="status"></div>
 <div id="scrollStatus"></div>
 <div id="sentinel"></div>
+<div class="page-nav">
+  <button id="pgUpBtn" type="button" title="Page up" aria-label="Page up">&#9650;</button>
+  <button id="pgDownBtn" type="button" title="Page down" aria-label="Page down">&#9660;</button>
+</div>
 <div id="floatingDate"></div>
 
 <script>
@@ -395,6 +469,7 @@ const sentimentEl = document.getElementById("sentimentFilter");
 const bannerEl = document.getElementById("banner");
 const dateJumpEl = document.getElementById("dateJump");
 const floatingDateEl = document.getElementById("floatingDate");
+const headerEl = document.querySelector("header");
 const searchNoteEl = document.getElementById("searchNote");
 const sentinelEl = document.getElementById("sentinel");
 const watchlistBtn = document.getElementById("watchlistBtn");
@@ -700,10 +775,13 @@ function render() {
 
 // ---------- floating date while scrolling ----------
 function updateFloatingDate() {
+  // Follow the top bar's real height, so this still lines up when the bar is hidden (phone).
+  const hdrBottom = Math.max(headerEl.getBoundingClientRect().bottom, 0);
+  floatingDateEl.style.top = (hdrBottom + 8) + "px";
   const headings = feedEl.querySelectorAll(".day-heading");
   let current = null;
   for (const h of headings) {
-    if (h.getBoundingClientRect().top <= 140) current = h;
+    if (h.getBoundingClientRect().top <= hdrBottom + 12) current = h;
     else break;
   }
   if (current) {
@@ -718,6 +796,41 @@ function debounce(fn, ms) {
   return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), ms); };
 }
 window.addEventListener("scroll", debounce(updateFloatingDate, 80));
+
+// ---------- phone: hide / show the top bar with the small arrow tab ----------
+const headerHandle = document.getElementById("headerHandle");
+function setHeaderHidden(hidden, opts) {
+  const persist = !opts || opts.persist !== false;
+  const compensate = !opts || opts.compensate !== false;
+  const before = headerEl.getBoundingClientRect().height;
+  document.documentElement.classList.toggle("header-hidden", hidden);
+  const after = headerEl.getBoundingClientRect().height;
+  headerHandle.textContent = hidden ? "\u25BC" : "\u25B2";
+  headerHandle.setAttribute("aria-label", hidden ? "Show toolbar" : "Hide toolbar");
+  // Keep whatever you are reading in the same spot on screen when the bar's height changes.
+  if (compensate && window.scrollY > 0 && after !== before) window.scrollBy(0, after - before);
+  if (persist) {
+    try { localStorage.setItem("scanx_header_hidden", hidden ? "1" : "0"); } catch (e) {}
+  }
+  updateFloatingDate();
+}
+headerHandle.addEventListener("click", () => {
+  setHeaderHidden(!document.documentElement.classList.contains("header-hidden"));
+});
+(function restoreHeaderState() {
+  let saved = null;
+  try { saved = localStorage.getItem("scanx_header_hidden"); } catch (e) {}
+  if (saved === "1") setHeaderHidden(true, { persist: false, compensate: false });
+})();
+
+// ---------- laptop/desktop: page up / page down buttons ----------
+function scrollPage(direction) {
+  const barHeight = Math.max(headerEl.getBoundingClientRect().bottom, 0);
+  const step = Math.max(200, window.innerHeight - barHeight - 40); // one visible "page", minus the bar
+  window.scrollBy({ top: direction * step, behavior: "smooth" });
+}
+document.getElementById("pgUpBtn").addEventListener("click", () => scrollPage(-1));
+document.getElementById("pgDownBtn").addEventListener("click", () => scrollPage(1));
 
 // ---------- infinite scroll (browse mode only) ----------
 let loadingMore = false;
