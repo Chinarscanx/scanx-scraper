@@ -1,6 +1,6 @@
 {
   "status": "ok",
-  "message": "Synced - no new items.",
-  "new_items": 0,
-  "last_attempt_utc": "2026-11-20T00:01:25.127074+00:00"
+  "message": "Synced 1 new item(s).",
+  "new_items": 1,
+  "last_attempt_utc": "2026-11-20T00:31:19.830497+00:00"
 }
